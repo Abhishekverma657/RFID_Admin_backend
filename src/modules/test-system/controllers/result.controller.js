@@ -53,6 +53,8 @@ exports.getAllResults = async (req, res, next) => {
                     answeredCount: response.answers.length,
                     violationCount,
                     reviewStatus: review ? review.status : "under-review",
+                    terminatedBy: response.terminatedBy,
+                    terminationReason: response.terminationReason,
                 };
             })
         );
@@ -150,6 +152,8 @@ exports.getResultDetail = async (req, res, next) => {
                     endTime: testResponse.endTime,
                     submitType: testResponse.submitType,
                     duration: testResponse.testId.duration,
+                    terminatedBy: testResponse.terminatedBy,
+                    terminationReason: testResponse.terminationReason,
                 },
                 performanceSummary: {
                     totalQuestions: questions.length,

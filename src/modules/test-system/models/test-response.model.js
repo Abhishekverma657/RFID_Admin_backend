@@ -21,7 +21,13 @@ const testResponseSchema = new mongoose.Schema(
         },
         submitType: {
             type: String,
-            enum: ["manual", "auto-time", "auto-violation", "disconnect"],
+            enum: ["manual", "auto-time", "auto-violation", "disconnect", "admin-terminated"],
+        },
+        terminatedBy: {
+            type: String, // Admin name or ID
+        },
+        terminationReason: {
+            type: String,
         },
         answers: [
             {

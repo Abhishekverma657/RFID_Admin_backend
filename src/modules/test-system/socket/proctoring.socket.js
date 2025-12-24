@@ -5,9 +5,11 @@
 const ProctoringLog = require("../models/proctoring-log.model");
 const TestStudent = require("../models/test-student.model");
 
+let proctoringNamespace;
+
 module.exports = (io) => {
     // Namespace for proctoring
-    const proctoringNamespace = io.of("/proctoring");
+    proctoringNamespace = io.of("/proctoring");
 
     proctoringNamespace.on("connection", (socket) => {
         console.log("Socket connected:", socket.id);
@@ -27,8 +29,9 @@ module.exports = (io) => {
         socket.on("student-started-test", async (data) => {
             const { testStudentId, testResponseId, userId, testId } = data;
 
-            // Join test room
+            // Join rooms
             socket.join(`test-${testId}`);
+            socket.join(`response-${testResponseId}`);
             socket.testStudentId = testStudentId;
             socket.testResponseId = testResponseId;
 
@@ -111,6 +114,48 @@ module.exports = (io) => {
             });
         });
 
+        const TestResponse = require("../models/test-response.model");
+
+        /**
+         * Admin terminates a student's test
+         */
+        socket.on("admin-terminate-test", async (data) => {
+            const { testResponseId, reason, adminName } = data;
+
+            try {
+                // Update DB
+                const testResponse = await TestResponse.findById(testResponseId);
+                if (testResponse && testResponse.status !== "submitted") {
+                    testResponse.status = "submitted";
+                    testResponse.endTime = new Date();
+                    testResponse.submitType = "admin-terminated";
+                    testResponse.terminatedBy = adminName || "Administrator";
+                    testResponse.terminationReason = reason || "Terminated by Administrator";
+                    await testResponse.save();
+                    console.log(`DB Updated: Test ${testResponseId} terminated by ${adminName}`);
+                }
+
+                // Notify Student
+                proctoringNamespace.to(`response-${testResponseId}`).emit("terminate-test", {
+                    reason: reason || "Terminated by Administrator",
+                    adminName: adminName || "Administrator"
+                });
+            } catch (error) {
+                console.error("Error terminating test via socket:", error);
+            }
+        });
+
+        /**
+         * Admin sends warning to a student
+         */
+        socket.on("admin-send-warning", (data) => {
+            const { testResponseId, message } = data;
+            proctoringNamespace.to(`response-${testResponseId}`).emit("warning-from-admin", {
+                message: message || "Please maintain exam integrity."
+            });
+            console.log(`Admin sent warning to: ${testResponseId}`);
+        });
+
         /**
          * Student disconnects
          */
@@ -136,3 +181,5 @@ module.exports = (io) => {
         });
     });
 };
+
+module.exports.getProctoringNamespace = () => proctoringNamespace;

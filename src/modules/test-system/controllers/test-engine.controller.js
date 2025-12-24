@@ -495,6 +495,25 @@ exports.uploadSnapshot = async (req, res, next) => {
             imageUrl,
         });
 
+        // Broadcast snapshot to admin in real-time
+        try {
+            const student = await TestStudent.findById(testStudentId);
+            if (student) {
+                const { getProctoringNamespace } = require("../socket/proctoring.socket");
+                const ns = getProctoringNamespace();
+                if (ns) {
+                    ns.to(`admin-${student.instituteId}`).emit("student-snapshot", {
+                        userId: student.userId,
+                        testResponseId,
+                        imageUrl,
+                        timestamp: new Date()
+                    });
+                }
+            }
+        } catch (socketErr) {
+            console.error("Error broadcasting snapshot:", socketErr);
+        }
+
         res.json({
             success: true,
             message: "Snapshot saved",

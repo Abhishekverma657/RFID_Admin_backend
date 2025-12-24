@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 5000;
 // Initialize Socket.IO with CORS configuration
 const io = socketIO({
   cors: {
-    origin: ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
+    origin: ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000", "http://109.106.255.78:5600/", "http://109.106.255.78:5600"],
     methods: ["GET", "POST"],
     credentials: true,
   },
