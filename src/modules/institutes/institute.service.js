@@ -28,13 +28,13 @@ exports.createInstitute = async (data) => {
     password: hashedPassword,
     role: "ADMIN",
     instituteId: institute._id,
-    
+
   });
 
   // 4. link admin to institute
   institute.adminUserId = adminUser._id;
   await institute.save();
-   await sendAdminCredentials(data.adminEmail, rawPassword);
+  await sendAdminCredentials(data.adminEmail, rawPassword);
 
   return {
     institute,
@@ -76,11 +76,11 @@ exports.getInstituteDetails = async (instituteId) => {
     ...institute,
     admin: adminUser
       ? {
-          name: adminUser.name,
-          email: adminUser.email,
-          // password: adminUser.password, // Never return hashed password!
-          role: adminUser.role,
-        }
+        name: adminUser.name,
+        email: adminUser.email,
+        // password: adminUser.password, // Never return hashed password!
+        role: adminUser.role,
+      }
       : null,
   };
 };
@@ -111,12 +111,26 @@ exports.getInstituteStats = async (instituteId) => {
     presentToday,
     admin: adminUser
       ? {
-          name: adminUser.name,
-          email: adminUser.email,
-          role: adminUser.role,
-        }
+        name: adminUser.name,
+        email: adminUser.email,
+        role: adminUser.role,
+      }
       : null,
   };
 };
 
+exports.deleteInstitute = async (instituteId) => {
+  const institute = await Institute.findById(instituteId);
+  if (!institute) throw new Error("Institute not found");
 
+  // Delete associated admin user
+  if (institute.adminUserId) {
+    await User.findByIdAndDelete(institute.adminUserId);
+  }
+
+  // Delete the institute itself
+  await Institute.findByIdAndDelete(instituteId);
+
+  // Optional: You might want to delete children like students, teachers etc. 
+  // but for safety we'll start with just the institute and its admin.
+};

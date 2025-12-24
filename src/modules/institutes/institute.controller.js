@@ -13,8 +13,8 @@ exports.createInstitute = async (req, res, next) => {
     next(err);
   }
 };
- 
-exports.getInstitutes = async (req, res, next) => { 
+
+exports.getInstitutes = async (req, res, next) => {
   try {
     const institutes = await service.getInstitutes();
     res.status(200).json({ success: true, institutes });
@@ -45,6 +45,15 @@ exports.getInstituteStats = async (req, res, next) => {
   try {
     const stats = await service.getInstituteStats(req.params.id);
     res.status(200).json({ success: true, stats });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteInstitute = async (req, res, next) => {
+  try {
+    await service.deleteInstitute(req.params.id);
+    res.status(200).json({ success: true, message: "Institute deleted successfully" });
   } catch (err) {
     next(err);
   }

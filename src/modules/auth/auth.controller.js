@@ -2,9 +2,9 @@ const authService = require("./auth.service");
 
 exports.login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, roleType } = req.body;
 
-    const data = await authService.login(email, password);
+    const data = await authService.login(email, password, roleType);
 
     // Agar token hai to bheje, warna sirf user bheje  
     if (data.token) {
@@ -49,6 +49,16 @@ exports.createSuperAdmin = async (req, res, next) => {
     });
   } catch (err) {
     console.log(err);
+    next(err);
+  }
+};
+
+exports.changePassword = async (req, res, next) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    await authService.changePassword(req.user.id, oldPassword, newPassword);
+    res.json({ success: true, message: "Password changed successfully" });
+  } catch (err) {
     next(err);
   }
 };

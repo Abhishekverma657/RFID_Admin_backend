@@ -14,8 +14,8 @@ router.post(
 router.get("/",
   protect,
   allowRoles("SUPER_ADMIN"),
-   controller.getInstitutesWithCounts)
-   
+  controller.getInstitutesWithCounts)
+
 router.get(
   "/:id",
   protect,
@@ -28,6 +28,13 @@ router.get(
   protect,
   allowRoles("ADMIN"),
   controller.getInstituteStats
+);
+
+router.delete(
+  "/:id",
+  protect,
+  allowRoles("SUPER_ADMIN"),
+  controller.deleteInstitute
 );
 
 module.exports = router;

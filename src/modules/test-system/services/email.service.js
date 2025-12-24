@@ -36,7 +36,7 @@ const sendEmail = async (to, subject, html) => {
 
 exports.sendStudentCredentials = async (student, test, password) => {
     const subject = `Your Exam Credentials for ${test.title}`;
-    const loginLink = `${process.env.FRONTEND_URL || 'http://localhost:5174'}/test/${test._id}`;
+    const loginLink = `${process.env.FRONTEND_URL || 'http://localhost:5174'}/test/${test._id}?userId=${student.userId}`;
 
     const html = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
@@ -45,8 +45,8 @@ exports.sendStudentCredentials = async (student, test, password) => {
             <p>You have been registered for the exam: <strong>${test.title}</strong>.</p>
             <p><strong>Exam Details:</strong></p>
             <ul>
-                <li><strong>Start Time:</strong> ${test.startTime ? new Date(test.startTime).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'N/A'}</li>
-                <li><strong>End Time:</strong> ${test.endTime ? new Date(test.endTime).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'N/A'}</li>
+                <li><strong>Start Time:</strong> ${test.startTime ? new Date(new Date(test.startTime).getTime() - (new Date(test.startTime).getTimezoneOffset() * 60000)).toISOString().replace('T', ' ').slice(0, 16) : 'N/A'}</li>
+                <li><strong>End Time:</strong> ${test.endTime ? new Date(new Date(test.endTime).getTime() - (new Date(test.endTime).getTimezoneOffset() * 60000)).toISOString().replace('T', ' ').slice(0, 16) : 'N/A'}</li>
                 <li><strong>Duration:</strong> ${test.duration} Minutes</li>
                 <li><strong>Total Marks:</strong> ${test.totalMarks}</li>
             </ul>
