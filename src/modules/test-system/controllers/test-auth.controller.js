@@ -155,7 +155,8 @@ exports.verifyOTP = async (req, res, next) => {
                     class: testStudent.assignedClass,
                     paperSet: testStudent.assignedPaperSet,
                 },
-                test: test // Include test details
+                test: test, // Include test details
+                serverTime: new Date() // For clock sync
             },
         });
     } catch (error) {

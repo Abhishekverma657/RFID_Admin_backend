@@ -140,6 +140,7 @@ exports.startTest = async (req, res, next) => {
         res.json({
             success: true,
             data: {
+                serverTime: new Date(),
                 testResponse: {
                     id: testResponse._id,
                     testStudentId: testResponse.testStudentId,
