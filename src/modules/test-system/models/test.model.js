@@ -38,6 +38,11 @@ const testSchema = new mongoose.Schema(
             type: Number,
             required: true,
         },
+        markingScheme: {
+            correct: { type: Number, default: 4 },
+            incorrect: { type: Number, default: -1 },
+            unattempted: { type: Number, default: 0 }
+        },
         showResultsTo: {
             score: { type: Boolean, default: true },
             attemptedCount: { type: Boolean, default: true },
@@ -52,15 +57,21 @@ const testSchema = new mongoose.Schema(
             deviceRestriction: { type: String, default: "any" },
         },
         violationRules: {
-            TAB_SWITCH: { type: Number, default: 1 }, // weight or limit? usually limit is in config
+            TAB_SWITCH: { type: Number, default: 3 }, // Changed default to 3 (2 warnings, 3rd fatal)
             CAMERA_OFF: { type: Number, default: 10 }, // seconds tolerance
             AUDIO_NOISE: { type: Number, default: 5 }, // seconds tolerance
-            FULLSCREEN_EXIT: { type: Number, default: 1 }, // weight
-            WINDOW_BLUR: { type: Number, default: 1 }, // weight
+            FULLSCREEN_EXIT: { type: Number, default: 3 }, // Changed default to 3
+            WINDOW_BLUR: { type: Number, default: 3 }, // Changed default to 3
         },
         isActive: {
             type: Boolean,
             default: true,
+        },
+        startTime: {
+            type: Date,
+        },
+        endTime: {
+            type: Date,
         },
     },
     { timestamps: true }

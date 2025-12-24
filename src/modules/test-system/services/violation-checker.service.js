@@ -37,21 +37,30 @@ async function checkViolationLimits(testResponseId, testId) {
         });
 
         // Check each violation type against limits
+        let exceeded = false;
+        let exceededType = null;
+        let exceededCount = 0;
+        let exceededLimit = 0;
+
         for (const [type, count] of Object.entries(violationCounts)) {
-            const limit = violationRules[type];
+            const limit = violationRules[type] || 0;
             if (count >= limit) {
-                return {
-                    exceeded: true,
-                    violationType: type,
-                    count,
-                    limit,
-                };
+                exceeded = true;
+                exceededType = type;
+                exceededCount = count;
+                exceededLimit = limit;
+                break;
             }
         }
 
         return {
-            exceeded: false,
-            violationType: null,
+            exceeded,
+            violationType: exceededType,
+            count: exceededCount,
+            limit: exceededLimit,
+            // Return all counts for frontend display
+            currentCounts: violationCounts,
+            rules: violationRules
         };
     } catch (error) {
         console.error("Error checking violation limits:", error);

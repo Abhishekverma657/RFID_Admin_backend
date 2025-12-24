@@ -5,6 +5,7 @@ const WebcamSnapshot = require("../models/webcam-snapshot.model");
 const ResultReview = require("../models/result-review.model");
 const TestStudent = require("../models/test-student.model");
 const Test = require("../models/test.model");
+const emailService = require("../services/email.service");
 
 /**
  * Get all results for an institute
@@ -39,6 +40,9 @@ exports.getAllResults = async (req, res, next) => {
             testResponses.map(async (response) => {
                 const review = await ResultReview.findOne({ testResponseId: response._id });
 
+                // Get violation count for this response
+                const violationCount = await ProctoringLog.countDocuments({ testResponseId: response._id });
+
                 return {
                     id: response._id,
                     student: response.testStudentId,
@@ -47,6 +51,7 @@ exports.getAllResults = async (req, res, next) => {
                     endTime: response.endTime,
                     submitType: response.submitType,
                     answeredCount: response.answers.length,
+                    violationCount,
                     reviewStatus: review ? review.status : "under-review",
                 };
             })
@@ -152,7 +157,7 @@ exports.getResultDetail = async (req, res, next) => {
                     unattempted,
                     correct,
                     wrong,
-                    score: correct,
+                    score: testResponse.score || ((correct * (testResponse.testId.markingScheme?.correct || 4)) + (wrong * (testResponse.testId.markingScheme?.incorrect || -1)) + (unattempted * (testResponse.testId.markingScheme?.unattempted || 0))),
                 },
                 questionWiseBreakdown,
                 violations: violations.map((v) => ({
@@ -223,6 +228,84 @@ exports.updateReviewStatus = async (req, res, next) => {
             });
         }
 
+        // Send Email if status is published
+        if (status === "published" && !testResponse.resultPublished) {
+            console.log(`[ResultEmail] Attempting to send result for TestResponseID: ${id}`);
+            try {
+                const fullResponse = await TestResponse.findById(id)
+                    .populate("testStudentId")
+                    .populate({
+                        path: "testId",
+                        select: "title duration markingScheme totalMarks passingMarks"
+                    });
+
+                if (!fullResponse || !fullResponse.testStudentId || !fullResponse.testId) {
+                    throw new Error("Missing student or test information for email notification");
+                }
+
+                const student = fullResponse.testStudentId;
+                const test = fullResponse.testId;
+
+                console.log(`[ResultEmail] Calculating score for student: ${student.email}`);
+
+                // Get questions for score calculation or metadata
+                const questions = await Question.find({
+                    instituteId: student.instituteId,
+                    class: student.assignedClass,
+                    set: student.assignedPaperSet,
+                });
+
+                if (!questions.length) {
+                    console.warn(`[ResultEmail] No questions found for class ${student.assignedClass} set ${student.assignedPaperSet}`);
+                }
+
+                let correct = 0;
+                let incorrect = 0;
+                fullResponse.answers.forEach((answer) => {
+                    const question = questions.find((q) => q._id.toString() === answer.questionId.toString());
+                    if (question && question.isEvaluatable) {
+                        if (answer.selectedOption === question.correctAnswer) {
+                            correct++;
+                        } else {
+                            incorrect++;
+                        }
+                    }
+                });
+
+                const unattempted = questions.length - fullResponse.answers.length;
+                const scheme = test.markingScheme || { correct: 4, incorrect: -1, unattempted: 0 };
+
+                // Use stored score if available, otherwise calculate
+                const score = (typeof fullResponse.score === 'number')
+                    ? fullResponse.score
+                    : (correct * scheme.correct) + (incorrect * scheme.incorrect) + (unattempted * scheme.unattempted);
+
+                const accuracy = fullResponse.answers.length > 0
+                    ? ((correct / fullResponse.answers.length) * 100).toFixed(1)
+                    : 0;
+
+                const resultData = {
+                    score,
+                    correct,
+                    incorrect,
+                    unattempted,
+                    accuracy
+                };
+
+                console.log(`[ResultEmail] Sending notification... Status: ${status}, Score: ${score}`);
+                await emailService.sendResultNotification(student, test, resultData);
+
+                // Update flag to avoid duplicate emails
+                testResponse.resultPublished = true;
+                await testResponse.save();
+                console.log(`[ResultEmail] Success: Email sent and flag updated for ${student.email}`);
+
+            } catch (emailErr) {
+                console.error("[ResultEmail] CRITICAL FAILURE:", emailErr.message);
+                console.error(emailErr.stack);
+            }
+        }
+
         res.json({
             success: true,
             data: review,
@@ -266,10 +349,15 @@ exports.getMyResult = async (req, res, next) => {
         });
 
         let correct = 0;
+        let incorrect = 0;
         testResponse.answers.forEach((answer) => {
             const question = questions.find((q) => q._id.toString() === answer.questionId.toString());
-            if (question && question.isEvaluatable && answer.selectedOption === question.correctAnswer) {
-                correct++;
+            if (question && question.isEvaluatable) {
+                if (answer.selectedOption === question.correctAnswer) {
+                    correct++;
+                } else {
+                    incorrect++;
+                }
             }
         });
 
@@ -281,7 +369,9 @@ exports.getMyResult = async (req, res, next) => {
         };
 
         if (test.showResultsTo.score) {
-            result.score = correct;
+            const unattempted = questions.length - testResponse.answers.length;
+            const scheme = test.markingScheme || { correct: 4, incorrect: -1, unattempted: 0 };
+            result.score = (correct * scheme.correct) + (incorrect * scheme.incorrect) + (unattempted * scheme.unattempted);
         }
 
         if (test.showResultsTo.attemptedCount) {

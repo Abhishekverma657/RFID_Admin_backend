@@ -9,13 +9,29 @@ exports.createTest = async (req, res, next) => {
         const {
             instituteId, title, description, duration,
             targetClass, targetPaperSet, totalMarks, passingMarks,
-            proctoringConfig, showResultsTo, violationRules
+            proctoringConfig, showResultsTo, violationRules, questionPaperId,
+            startTime, endTime
         } = req.body;
 
-        if (!instituteId || !title || !duration || !targetClass || !targetPaperSet) {
+        if (!instituteId || !title || !targetClass || !targetPaperSet) {
             return res.status(400).json({
                 success: false,
-                message: "instituteId, title, duration, class, and paper set are required",
+                message: "instituteId, title, class, and paper set are required",
+            });
+        }
+
+        // Calculate duration if startTime and endTime are provided
+        let calcDuration = duration;
+        if (startTime && endTime) {
+            const start = new Date(startTime);
+            const end = new Date(endTime);
+            calcDuration = Math.floor((end - start) / (1000 * 60));
+        }
+
+        if (!calcDuration && !duration) {
+            return res.status(400).json({
+                success: false,
+                message: "Duration or Start/End times are required",
             });
         }
 
@@ -23,7 +39,7 @@ exports.createTest = async (req, res, next) => {
             instituteId,
             title,
             description,
-            duration,
+            duration: calcDuration,
             targetClass,
             targetPaperSet,
             totalMarks,
@@ -31,6 +47,9 @@ exports.createTest = async (req, res, next) => {
             proctoringConfig,
             showResultsTo,
             violationRules,
+            questionPaperId: questionPaperId || null,
+            startTime,
+            endTime
         });
 
         res.status(201).json({
@@ -139,15 +158,27 @@ exports.updateTest = async (req, res, next) => {
         const {
             title, description, duration,
             targetClass, targetPaperSet, totalMarks, passingMarks,
-            proctoringConfig, showResultsTo, violationRules, isActive
+            proctoringConfig, showResultsTo, violationRules, isActive, questionPaperId,
+            startTime, endTime
         } = req.body;
+
+        // Calculate duration if startTime and endTime are provided
+        let calcDuration = duration;
+        if (startTime && endTime) {
+            const start = new Date(startTime);
+            const end = new Date(endTime);
+            calcDuration = Math.floor((end - start) / (1000 * 60));
+        }
 
         const test = await Test.findByIdAndUpdate(
             id,
             {
-                title, description, duration,
+                title, description, duration: calcDuration,
                 targetClass, targetPaperSet, totalMarks, passingMarks,
-                proctoringConfig, showResultsTo, violationRules, isActive
+                proctoringConfig, showResultsTo, violationRules, isActive,
+                questionPaperId: questionPaperId || null,
+                startTime,
+                endTime
             },
             { new: true, runValidators: true }
         );

@@ -1,54 +1,105 @@
-const fs = require("fs").promises;
-const path = require("path");
+const cloudinary = require("cloudinary").v2;
+
+// Configure Cloudinary
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 /**
- * Save base64 webcam image to disk
+ * Save base64 webcam image to Cloudinary
  * @param {string} base64Image - Base64 encoded image (with or without data URI prefix)
  * @param {string} testStudentId - Test student ID
- * @returns {string} - Relative file path
+ * @returns {string} - Cloudinary Secure URL
  */
 async function saveSnapshot(base64Image, testStudentId) {
     try {
-        // Remove data URI prefix if present
-        const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
-        const buffer = Buffer.from(base64Data, "base64");
-
-        // Create filename with timestamp
+        // Create public ID with timestamp
         const timestamp = Date.now();
-        const filename = `${testStudentId}_${timestamp}.jpg`;
+        const publicId = `snapshot_${testStudentId}_${timestamp}`;
 
-        // Create directory if it doesn't exist
-        const uploadDir = path.join(__dirname, "../../../../uploads/snapshots");
-        await fs.mkdir(uploadDir, { recursive: true });
+        // Upload to Cloudinary
+        const result = await cloudinary.uploader.upload(base64Image, {
+            folder: "exam_snapshots",
+            public_id: publicId,
+            resource_type: "image",
+        });
 
-        const filepath = path.join(uploadDir, filename);
-
-        // Write file
-        await fs.writeFile(filepath, buffer);
-
-        // Return relative path for storage in database
-        return `/uploads/snapshots/${filename}`;
+        // Return secure URL
+        return result.secure_url;
     } catch (error) {
-        console.error("Error saving snapshot:", error);
+        console.error("Error saving snapshot to Cloudinary:", error);
         throw new Error("Failed to save webcam snapshot");
     }
 }
 
 /**
- * Delete snapshot file
- * @param {string} imageUrl - Relative path to image
+ * Delete snapshot from Cloudinary
+ * @param {string} imageUrl - Cloudinary Image URL
  */
 async function deleteSnapshot(imageUrl) {
     try {
-        const filepath = path.join(__dirname, "../../../..", imageUrl);
-        await fs.unlink(filepath);
+        if (!imageUrl) return;
+
+        // Extract public ID from URL
+        // Example: https://res.cloudinary.com/demo/image/upload/v1/exam_snapshots/snapshot_123.jpg
+        const splitUrl = imageUrl.split("/");
+        const filename = splitUrl[splitUrl.length - 1]; // snapshot_123.jpg
+        const publicId = `exam_snapshots/${filename.split(".")[0]}`;
+
+        await cloudinary.uploader.destroy(publicId);
     } catch (error) {
-        console.error("Error deleting snapshot:", error);
-        // Don't throw error - file might already be deleted
+        console.error("Error deleting snapshot from Cloudinary:", error);
+        // Don't throw error
+    }
+}
+
+/**
+ * Upload image buffer to Cloudinary via stream
+ * @param {Buffer} buffer - File buffer
+ * @param {string} folder - Folder name
+ * @returns {Promise<string>} - Cloudinary Secure URL
+ */
+async function uploadImageFromBuffer(buffer, folder = "test_system_images") {
+    return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+            { folder: folder, resource_type: "image" },
+            (error, result) => {
+                if (error) {
+                    console.error("Cloudinary Upload Error:", error);
+                    reject(error);
+                } else {
+                    resolve(result.secure_url);
+                }
+            }
+        );
+        uploadStream.end(buffer);
+    });
+}
+
+/**
+ * Upload generic image to Cloudinary (Questions, Options, etc.)
+ * @param {string} fileInput - File path or Base64 string
+ * @param {string} folder - Folder name (default: "test_system_images")
+ * @returns {string} - Cloudinary Secure URL
+ */
+async function uploadImage(fileInput, folder = "test_system_images") {
+    try {
+        const result = await cloudinary.uploader.upload(fileInput, {
+            folder: folder,
+            resource_type: "image",
+        });
+        return result.secure_url;
+    } catch (error) {
+        console.error("Error uploading image to Cloudinary:", error);
+        throw new Error("Failed to upload image");
     }
 }
 
 module.exports = {
     saveSnapshot,
     deleteSnapshot,
+    uploadImage,
+    uploadImageFromBuffer
 };

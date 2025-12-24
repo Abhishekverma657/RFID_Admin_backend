@@ -15,7 +15,7 @@ const resultReviewSchema = new mongoose.Schema(
         },
         status: {
             type: String,
-            enum: ["under-review", "valid", "disqualified"],
+            enum: ["under-review", "valid", "disqualified", "published"],
             default: "under-review",
         },
         adminRemark: {

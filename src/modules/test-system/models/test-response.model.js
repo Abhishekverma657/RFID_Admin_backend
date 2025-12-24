@@ -48,6 +48,21 @@ const testResponseSchema = new mongoose.Schema(
             enum: ["in-progress", "submitted"],
             default: "in-progress",
         },
+        score: {
+            type: Number,
+            default: 0
+        },
+        scoreMetadata: {
+            totalQuestions: { type: Number, default: 0 },
+            attempted: { type: Number, default: 0 },
+            correct: { type: Number, default: 0 },
+            incorrect: { type: Number, default: 0 },
+            unattempted: { type: Number, default: 0 },
+        },
+        resultPublished: {
+            type: Boolean,
+            default: false
+        }
     },
     { timestamps: true }
 );

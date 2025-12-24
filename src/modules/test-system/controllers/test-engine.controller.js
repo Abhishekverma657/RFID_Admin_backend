@@ -41,20 +41,93 @@ exports.startTest = async (req, res, next) => {
             });
         }
 
+        // --- START TIME CONSTRAINT ---
+        if (test.startTime && new Date() < new Date(test.startTime)) {
+            return res.status(403).json({
+                success: false,
+                message: `Test has not started yet. It will start at ${new Date(test.startTime).toLocaleString()}`,
+            });
+        }
+        // -----------------------------
+
         // Get questions based on assigned class and paper set
-        const questions = await Question.find({
+        console.log(`DEBUG startTest: Student ${student._id} assignedClass=${student.assignedClass} assignedPaperSet=${student.assignedPaperSet} instituteId=${student.instituteId}`);
+
+        // Get questions based on assigned class and paper set
+        console.log(`DEBUG startTest: Student ${student._id} assignedClass=${student.assignedClass} assignedPaperSet=${student.assignedPaperSet} instituteId=${student.instituteId}`);
+
+        const query = {
             instituteId: student.instituteId,
             class: student.assignedClass,
             set: student.assignedPaperSet,
-        }).select("-correctAnswer") // Don't send correct answer to client
-            .sort({ sr: 1 });
+        };
+
+        let questions = await Question.find(query).select("-correctAnswer").sort({ sr: 1 });
+
+        console.log(`DEBUG startTest: Found ${questions.length} questions`);
 
         if (questions.length === 0) {
             return res.status(404).json({
                 success: false,
                 message: "No questions found for this test",
+                debug: { query, studentId: student._id }
             });
         }
+
+        // --- LEVEL-WISE SHUFFLING LOGIC ---
+
+        // 1. Group by Level
+        const grouped = {
+            Easy: [],
+            Medium: [],
+            Hard: []
+        };
+
+        questions.forEach(q => {
+            const level = q.level || "Medium";
+            if (grouped[level]) {
+                grouped[level].push(q);
+            } else {
+                grouped["Medium"].push(q); // Fallback
+            }
+        });
+
+        // 2. Simple Seeded Shuffle Function (Mulberry32-like behavior)
+        const seededShuffle = (array, seedStr) => {
+            if (!array.length) return [];
+
+            // Create a numeric seed from string
+            let h = 2166136261 >>> 0;
+            for (let i = 0; i < seedStr.length; i++) {
+                h = Math.imul(h ^ seedStr.charCodeAt(i), 16777619);
+            }
+            let seed = h >>> 0;
+
+            const rng = () => {
+                seed = (seed * 9301 + 49297) % 233280;
+                return seed / 233280;
+            };
+
+            // Fisher-Yates Shuffle with seeded RNG
+            const shuffled = [...array];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(rng() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+        };
+
+        // 3. Shuffle each group
+        // Seed = TestID + StudentID (Ensures consistency for same student on same test)
+        const seed = testId.toString() + testStudentId.toString();
+
+        const sortedQuestions = [
+            ...seededShuffle(grouped.Easy, seed + "Easy"),
+            ...seededShuffle(grouped.Medium, seed + "Medium"),
+            ...seededShuffle(grouped.Hard, seed + "Hard")
+        ];
+
+        // ----------------------------------
 
         // Create test response if not exists
         if (!testResponse) {
@@ -69,6 +142,9 @@ exports.startTest = async (req, res, next) => {
             data: {
                 testResponse: {
                     id: testResponse._id,
+                    testStudentId: testResponse.testStudentId,
+                    userId: student.userId,
+                    testId: testResponse.testId,
                     startTime: testResponse.startTime,
                     status: testResponse.status,
                 },
@@ -78,10 +154,15 @@ exports.startTest = async (req, res, next) => {
                     duration: test.duration,
                     violationRules: test.violationRules,
                 },
-                questions: questions.map((q) => ({
+                questions: sortedQuestions.map((q) => ({
                     id: q._id,
                     sr: q.sr,
                     question: q.question,
+                    questionImage: q.questionImage,
+                    level: q.level,
+                    questionType: q.questionType,
+                    options: q.options,
+                    // Legacy support
                     optionA: q.optionA,
                     optionB: q.optionB,
                     optionC: q.optionC,
@@ -149,6 +230,8 @@ exports.saveAnswer = async (req, res, next) => {
     }
 };
 
+const emailService = require("../services/email.service");
+
 /**
  * Submit test
  * POST /api/test-system/exam/submit
@@ -165,7 +248,7 @@ exports.submitTest = async (req, res, next) => {
             });
         }
 
-        const testResponse = await TestResponse.findById(testResponseId);
+        let testResponse = await TestResponse.findById(testResponseId);
 
         if (!testResponse) {
             return res.status(404).json({
@@ -181,10 +264,76 @@ exports.submitTest = async (req, res, next) => {
             });
         }
 
+        // --- SCORE CALCULATION ---
+        const test = await Test.findById(testResponse.testId);
+        const student = await TestStudent.findById(testStudentId);
+
+        // Fetch questions to get correct answers
+        const questionIds = testResponse.answers.map(ans => ans.questionId);
+        const questions = await Question.find({ _id: { $in: questionIds } });
+
+        let score = 0;
+        let correct = 0;
+        let incorrect = 0;
+        let unattempted = 0; // Logic for unattempted might need total question count - attempted count
+
+        // Scheme
+        const scheme = test.markingScheme || { correct: 4, incorrect: -1, unattempted: 0 };
+
+        // We need total questions count to calculate unattempted
+        const totalQuestionsCount = await Question.countDocuments({
+            instituteId: test.instituteId,
+            class: test.targetClass,
+            set: test.targetPaperSet
+        });
+
+        // Map for fast lookup
+        const questionMap = {};
+        questions.forEach(q => { questionMap[q._id.toString()] = q; });
+
+        // Calculate score for ATTEMPTED questions
+        testResponse.answers.forEach(ans => {
+            const q = questionMap[ans.questionId.toString()];
+            if (q) {
+                if (ans.selectedOption === q.correctAnswer) {
+                    score += scheme.correct;
+                    correct++;
+                } else {
+                    score += scheme.incorrect;
+                    incorrect++;
+                }
+            }
+        });
+
+        // Unattempted = Total - Attempted
+        unattempted = totalQuestionsCount - testResponse.answers.length;
+        score += (unattempted * scheme.unattempted);
+
+        // -------------------------
+
         testResponse.status = "submitted";
         testResponse.endTime = new Date();
         testResponse.submitType = submitType;
+
+        // Save Score
+        testResponse.score = score;
+        testResponse.scoreMetadata = {
+            totalQuestions: totalQuestionsCount,
+            attempted: testResponse.answers.length,
+            correct,
+            incorrect,
+            unattempted
+        };
+        testResponse.resultPublished = false; // Pending review? User said "when admin result check status update"
+
         await testResponse.save();
+
+        // Send Email
+        try {
+            await emailService.sendSubmissionConfirmation(student, test, testResponse.endTime);
+        } catch (emailErr) {
+            console.error("Failed to send submission email:", emailErr);
+        }
 
         res.json({
             success: true,
@@ -192,6 +341,7 @@ exports.submitTest = async (req, res, next) => {
             data: {
                 testResponseId: testResponse._id,
                 submitType: testResponse.submitType,
+                scoreMetadata: testResponse.scoreMetadata // Optional check
             },
         });
     } catch (error) {
@@ -266,7 +416,20 @@ exports.logViolation = async (req, res, next) => {
             metadata,
         });
 
-        // Check if violation limits exceeded
+        // IMMEDIATELY auto-submit for TAB_SWITCH or CAMERA_OFF as per user request
+        if (violationType === "TAB_SWITCH" || violationType === "CAMERA_OFF" || violationType === "FULLSCREEN_EXIT") {
+            await autoSubmitTest(testResponseId);
+            return res.json({
+                success: true,
+                data: {
+                    violationLogged: true,
+                    autoSubmitted: true,
+                    reason: `Violation ${violationType} triggered immediate termination.`,
+                },
+            });
+        }
+
+        // Check if other violation limits exceeded
         const testResponse = await TestResponse.findById(testResponseId);
         const violationCheck = await checkViolationLimits(testResponseId, testResponse.testId);
 
@@ -284,11 +447,21 @@ exports.logViolation = async (req, res, next) => {
             });
         }
 
+        // Get count and limit for the current violation type
+        const currentCount = violationCheck.currentCounts ? violationCheck.currentCounts[violationType] : 0;
+        const limit = violationCheck.rules ? violationCheck.rules[violationType] : 0;
+
         res.json({
             success: true,
             data: {
                 violationLogged: true,
                 autoSubmitted: false,
+                warning: {
+                    type: violationType,
+                    count: currentCount,
+                    limit: limit,
+                    message: `Warning: ${violationType} detected (${currentCount}/${limit}).`
+                }
             },
         });
     } catch (error) {

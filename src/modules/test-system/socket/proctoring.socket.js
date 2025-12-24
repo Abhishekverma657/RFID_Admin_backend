@@ -32,13 +32,15 @@ module.exports = (io) => {
             socket.testStudentId = testStudentId;
             socket.testResponseId = testResponseId;
 
-            // Get institute ID to notify admin
+            // Get institute ID and details to notify admin
             try {
-                const testStudent = await TestStudent.findById(testStudentId);
+                const testStudent = await TestStudent.findById(testStudentId).populate('assignedTest', 'title');
                 if (testStudent) {
-                    // Notify admin that student started test
+                    // Notify admin that student started test with more details
                     proctoringNamespace.to(`admin-${testStudent.instituteId}`).emit("student-joined", {
                         userId,
+                        studentName: testStudent.name,
+                        testTitle: testStudent.assignedTest?.title || "Unknown Test",
                         testStudentId,
                         testResponseId,
                         timestamp: new Date(),

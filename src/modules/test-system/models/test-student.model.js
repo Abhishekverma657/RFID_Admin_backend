@@ -20,6 +20,12 @@ const testStudentSchema = new mongoose.Schema(
             type: String,
             required: true,
         },
+        rollNumber: {
+            type: String, // Optional
+        },
+        mobileNumber: {
+            type: String, // Optional but recommended for updates
+        },
         assignedTest: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Test",

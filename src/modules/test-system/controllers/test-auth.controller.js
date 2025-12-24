@@ -130,6 +130,9 @@ exports.verifyOTP = async (req, res, next) => {
         // Get test student
         const testStudent = await TestStudent.findOne({ userId });
 
+        // Get test info for countdown/instructions
+        const test = await Test.findById(testStudent.assignedTest).select("title startTime endTime duration");
+
         // Generate JWT token
         const token = jwt.sign(
             {
@@ -152,6 +155,7 @@ exports.verifyOTP = async (req, res, next) => {
                     class: testStudent.assignedClass,
                     paperSet: testStudent.assignedPaperSet,
                 },
+                test: test // Include test details
             },
         });
     } catch (error) {

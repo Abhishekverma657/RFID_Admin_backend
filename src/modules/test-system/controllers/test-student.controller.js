@@ -1,3 +1,5 @@
+const Test = require("../models/test.model");
+const emailService = require("../services/email.service");
 const TestStudent = require("../models/test-student.model");
 const { generateUniqueUserId } = require("../services/user-id-generator.service");
 
@@ -7,7 +9,7 @@ const { generateUniqueUserId } = require("../services/user-id-generator.service"
  */
 exports.createTestStudent = async (req, res, next) => {
     try {
-        const { name, email, instituteId, testId, className, paperSet } = req.body;
+        const { name, email, rollNumber, mobileNumber, instituteId, testId, className, paperSet } = req.body;
 
         // Validate required fields
         if (!name || !email || !instituteId) {
@@ -26,10 +28,25 @@ exports.createTestStudent = async (req, res, next) => {
             userId,
             name,
             email,
+            rollNumber,
+            mobileNumber,
             assignedTest: testId || undefined,
             assignedClass: className || undefined,
             assignedPaperSet: paperSet || undefined,
         });
+
+        // Send Email if Test is Assigned
+        if (testId) {
+            try {
+                const test = await Test.findById(testId);
+                if (test) {
+                    await emailService.sendStudentCredentials(testStudent, test, userId); // Password is same as userId for now
+                }
+            } catch (emailErr) {
+                console.error("Failed to send credential email:", emailErr);
+                // Continue without failing request
+            }
+        }
 
         res.status(201).json({
             success: true,
@@ -47,6 +64,7 @@ exports.createTestStudent = async (req, res, next) => {
 exports.getTestStudents = async (req, res, next) => {
     try {
         const { instituteId } = req.query;
+        console.log("DEBUG: getTestStudents called. instituteId:", instituteId, "Type:", typeof instituteId);
 
         if (!instituteId) {
             return res.status(400).json({
@@ -157,6 +175,17 @@ exports.assignTestToStudent = async (req, res, next) => {
                 success: false,
                 message: "Test student not found",
             });
+        }
+
+        // Send Email with credentials
+        try {
+            const test = await Test.findById(testId);
+            if (test) {
+                // Determine password (currently same as userId)
+                await emailService.sendStudentCredentials(testStudent, test, testStudent.userId);
+            }
+        } catch (emailErr) {
+            console.error("Failed to send credential email in assignTestToStudent:", emailErr);
         }
 
         res.json({

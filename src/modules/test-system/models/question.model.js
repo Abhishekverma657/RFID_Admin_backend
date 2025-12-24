@@ -10,7 +10,7 @@ const questionSchema = new mongoose.Schema(
         questionPaperId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "QuestionPaper",
-            required: false, // Optional for backward compatibility or direct addition
+            required: false,
         },
         class: {
             type: String,
@@ -29,26 +29,40 @@ const questionSchema = new mongoose.Schema(
             type: String,
             required: true,
         },
-        optionA: {
-            type: String,
-            required: true,
+        questionImage: {
+            type: String, // URL to image
+            default: null
         },
-        optionB: {
+        questionType: {
             type: String,
-            required: true,
+            enum: ["MCQ", "TEXT"], // Future proofing
+            default: "MCQ"
         },
-        optionC: {
+        level: {
             type: String,
-            required: true,
+            enum: ["Easy", "Medium", "Hard"],
+            default: "Medium"
         },
-        optionD: {
-            type: String,
-            required: true,
-        },
+        // Old structure support (deprecated but kept for backward compatibility if needed temporarily)
+        optionA: { type: String },
+        optionB: { type: String },
+        optionC: { type: String },
+        optionD: { type: String },
+
+        // New structure
+        options: [{
+            text: { type: String },
+            image: { type: String, default: null }, // URL to image
+            id: { type: String } // '0', '1', '2' or unique ID
+        }],
+
         correctAnswer: {
-            type: String,
-            enum: ["A", "B", "C", "D", null],
+            type: String, // Storing index '0', '1' or 'A', 'B' for backward compatibility
             default: null,
+        },
+        correctOptionIndex: {
+            type: Number, // 0, 1, 2, 3
+            default: null
         },
         isEvaluatable: {
             type: Boolean,

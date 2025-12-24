@@ -1,6 +1,8 @@
 const XLSX = require("xlsx");
 const Question = require("../models/question.model");
 
+console.log("=== EXCEL PARSER SERVICE LOADED (v2) ===");
+
 /**
  * Parse Excel/CSV file and extract questions
  * @param {Buffer} fileBuffer - Excel or CSV file buffer
@@ -14,7 +16,7 @@ const Question = require("../models/question.model");
  * @param {string} questionPaperId - Optional Question Paper ID
  * @returns {Object} - { success, data, errors }
  */
-async function parseQuestionsExcel(fileBuffer, instituteId, questionPaperId = null) {
+async function parseQuestionsExcel(fileBuffer, instituteId, questionPaperId = null, defaultClass = null, defaultSet = null) {
     const results = {
         success: [],
         errors: [],
@@ -28,10 +30,8 @@ async function parseQuestionsExcel(fileBuffer, instituteId, questionPaperId = nu
         const rows = XLSX.utils.sheet_to_json(sheet);
 
         // Validate required columns
+        // Removed 'sr' as it is now auto-generated if missing
         const requiredColumns = [
-            "class",
-            "set",
-            "sr",
             "question",
             "optionA",
             "optionB",
@@ -45,109 +45,112 @@ async function parseQuestionsExcel(fileBuffer, instituteId, questionPaperId = nu
 
         // Check if all required columns exist
         const firstRow = rows[0];
+        console.log("DEBUG: Excel columns found:", Object.keys(firstRow));
+
         const missingColumns = requiredColumns.filter(
             (col) => !(col in firstRow)
         );
 
         if (missingColumns.length > 0) {
             throw new Error(
-                `Missing required columns: ${missingColumns.join(", ")}`
+                `Missing required columns: ${missingColumns.join(", ")}. Found columns: ${Object.keys(firstRow).join(", ")}`
             );
+        }
+
+        if (!defaultClass || !defaultSet) {
+            // In new flow, these are always passed.
+            // But let's check just in case.
+        }
+
+        // Get current max SR for this paper to append
+        let currentMaxSr = 0;
+        if (questionPaperId) {
+            const lastQ = await Question.findOne({ questionPaperId }).sort({ sr: -1 });
+            if (lastQ) currentMaxSr = lastQ.sr;
+        } else {
+            // Legacy fallback
+            const lastQ = await Question.findOne({ instituteId, class: defaultClass, set: defaultSet }).sort({ sr: -1 });
+            if (lastQ) currentMaxSr = lastQ.sr;
         }
 
         // Process each row
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
-            const rowNumber = i + 2; // Excel row number (accounting for header)
+            const rowNumber = i + 2;
 
             try {
-                // Validate set value
-                if (!["A", "B", "C", "D"].includes(row.set)) {
+                // Determine SR: Use DB sequence if not in file
+                let finalSr = row.sr;
+                if (!finalSr) {
+                    currentMaxSr++;
+                    finalSr = currentMaxSr;
+                } else if (isNaN(finalSr)) {
+                    // If Sr provided but invalid
                     results.errors.push({
                         row: rowNumber,
-                        error: `Invalid set value: ${row.set}. Must be A, B, C, or D`,
+                        error: "Serial number (sr) provided but invalid",
                     });
                     continue;
-                }
-
-                // Validate sr (serial number)
-                if (!row.sr || isNaN(row.sr)) {
-                    results.errors.push({
-                        row: rowNumber,
-                        error: "Serial number (sr) must be a valid number",
-                    });
-                    continue;
-                }
-
-                // Check for duplicate locally if utilizing questionPaperId
-                if (questionPaperId) {
-                    const existingQuestion = await Question.findOne({
-                        questionPaperId,
-                        sr: parseInt(row.sr)
-                    });
-                    if (existingQuestion) {
-                        results.errors.push({
-                            row: rowNumber,
-                            error: `Duplicate question within this paper: sr=${row.sr} already exists`,
-                        });
-                        continue;
-                    }
                 } else {
-                    // Legacy check
-                    const existingQuestion = await Question.findOne({
-                        instituteId,
-                        class: row.class,
-                        set: row.set,
-                        sr: parseInt(row.sr),
-                        questionPaperId: null
-                    });
-                    if (existingQuestion) {
-                        results.errors.push({
-                            row: rowNumber,
-                            error: `Duplicate question: class=${row.class}, set=${row.set}, sr=${row.sr} already exists`,
-                        });
-                        continue;
-                    }
+                    // Update max if manually provided
+                    if (finalSr > currentMaxSr) currentMaxSr = finalSr;
+                }
+
+                // Prepare Options Array
+                const options = [
+                    { text: row.optionA, id: "0", image: null },
+                    { text: row.optionB, id: "1", image: null },
+                    { text: row.optionC, id: "2", image: null },
+                    { text: row.optionD, id: "3", image: null },
+                ];
+
+                // Map Correct Answer (A/B/C/D) to Index
+                let correctOptionIndex = null;
+                const ca = row.correctAnswer ? row.correctAnswer.toUpperCase().trim() : null;
+                const mapping = { 'A': 0, 'B': 1, 'C': 2, 'D': 3 };
+
+                if (ca && mapping.hasOwnProperty(ca)) {
+                    correctOptionIndex = mapping[ca];
                 }
 
                 // Prepare question data
                 const questionData = {
                     instituteId,
                     questionPaperId: questionPaperId || undefined,
-                    class: row.class,
-                    set: row.set,
-                    sr: parseInt(row.sr),
+                    class: defaultClass,
+                    set: defaultSet,
+                    sr: finalSr,
                     question: row.question,
+                    questionImage: null, // Excel doesn't support direct image upload easily yet
+                    level: row.level || "Medium", // Default to Medium if not specified
+
+                    // New Structure
+                    options: options,
+                    correctOptionIndex: correctOptionIndex,
+
+                    // Legacy Sync (optional, for safety)
                     optionA: row.optionA,
                     optionB: row.optionB,
                     optionC: row.optionC,
                     optionD: row.optionD,
-                    correctAnswer: row.correctAnswer || null,
-                };
+                    correctAnswer: ca,
 
-                // Validate correctAnswer if provided
-                if (
-                    questionData.correctAnswer &&
-                    !["A", "B", "C", "D"].includes(questionData.correctAnswer)
-                ) {
-                    results.errors.push({
-                        row: rowNumber,
-                        error: `Invalid correctAnswer: ${questionData.correctAnswer}. Must be A, B, C, or D`,
-                    });
-                    continue;
-                }
+                    isEvaluatable: correctOptionIndex !== null
+                };
 
                 // Create question
                 const question = await Question.create(questionData);
+
                 results.success.push({
                     row: rowNumber,
                     questionId: question._id,
-                    class: question.class,
-                    set: question.set,
                     sr: question.sr,
-                    isEvaluatable: question.isEvaluatable,
+                    question: question.question,
+                    options: question.options,
+                    level: question.level
                 });
             } catch (error) {
+                console.error("Row Error:", error);
                 results.errors.push({
                     row: rowNumber,
                     error: error.message,
